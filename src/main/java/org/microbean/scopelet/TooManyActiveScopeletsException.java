@@ -13,22 +13,50 @@
  */
 package org.microbean.scopelet;
 
+/**
+ * A {@link ScopeletException} indicating that there were too many {@linkplain Scopelet#active() active} {@link
+ * Scopelet}s when zero or one was expected.
+ *
+ * @author <a href="https://about.me/lairdnelson" target="_top">Laird Nelson</a>
+ */
 public class TooManyActiveScopeletsException extends ScopeletException {
 
   private static final long serialVersionUID = 1L;
 
+  /**
+   * Creates a new {@link TooManyActiveScopeletsException}.
+   */
   public TooManyActiveScopeletsException() {
     super();
   }
 
+  /**
+   * Creates a new {@link TooManyActiveScopeletsException}.
+   *
+   * @param message a detail message; may be {@code null}
+   */
   public TooManyActiveScopeletsException(final String message) {
     super(message);
   }
 
+  /**
+   * Creates a new {@link TooManyActiveScopeletsException}.
+   *
+   * @param cause a {@link Throwable} that caused this {@link TooManyActiveScopeletsException} to be created; may be
+   * {@code null}
+   */
   public TooManyActiveScopeletsException(final Throwable cause) {
     super(cause);
   }
 
+  /**
+   * Creates a new {@link TooManyActiveScopeletsException}.
+   *
+   * @param message a detail message; may be {@code null}
+   *
+   * @param cause a {@link Throwable} that caused this {@link TooManyActiveScopeletsException} to be created; may be
+   * {@code null}
+   */
   public TooManyActiveScopeletsException(final String message, final Throwable cause) {
     super(message, cause);
   }

@@ -1,14 +1,14 @@
 /* -*- mode: Java; c-basic-offset: 2; indent-tabs-mode: nil; coding: utf-8-unix -*-
  *
- * Copyright © 2023 microBean™.
+ * Copyright © 2023–2025 microBean™.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * the License. You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
- * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the License for the
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
  * specific language governing permissions and limitations under the License.
  */
 package org.microbean.scopelet;
@@ -20,27 +20,54 @@ import java.lang.invoke.VarHandle;
 import java.util.Objects;
 
 import org.microbean.bean.Bean;
-import org.microbean.bean.Creation;
 import org.microbean.bean.Id;
 import org.microbean.bean.Factory;
-import org.microbean.bean.ReferenceSelector;
+import org.microbean.bean.Request;
 
 import org.microbean.qualifier.NamedAttributeMap;
 
 import org.microbean.scope.ScopeMember;
 
+import static org.microbean.scope.Scope.SINGLETON_ID;
+
+/**
+ * A manager of object lifespans identified by a {@linkplain org.microbean.scope.Scope scope}.
+ *
+ * @param <S> the {@link Scopelet} subtype extending this class
+ *
+ * @author <a href="https://about.me/lairdnelson" target="_top">Laird Nelson</a>
+ *
+ * @see org.microbean.scope.Scope
+ *
+ * @see ScopeMember
+ */
 public abstract class Scopelet<S extends Scopelet<S>> implements AutoCloseable, Factory<S>, ScopeMember {
+
+
+  /*
+   * Static fields.
+   */
+
+
+  private static final VarHandle CLOSED;
 
   private static final VarHandle ME;
 
   static {
     final Lookup lookup = MethodHandles.lookup();
     try {
+      CLOSED = lookup.findVarHandle(Scopelet.class, "closed", boolean.class);
       ME = lookup.findVarHandle(Scopelet.class, "me", Scopelet.class);
     } catch (final NoSuchFieldException | IllegalAccessException e) {
-      throw (Error)new ExceptionInInitializerError(e.getMessage()).initCause(e);
+      throw new ExceptionInInitializerError(e);
     }
   }
+
+
+  /*
+   * Instance fields.
+   */
+
 
   private volatile S me;
 
@@ -48,38 +75,107 @@ public abstract class Scopelet<S extends Scopelet<S>> implements AutoCloseable, 
 
   private final NamedAttributeMap<?> scopeId;
 
+
+  /*
+   * Constructors.
+   */
+
+
+  /**
+   * Creates a new {@link Scopelet}.
+   *
+   * @param scopeId a {@link NamedAttributeMap} identifying the scope being implemented; must not be {@code null}
+   *
+   * @exception NullPointerException if {@code scopeId} is {@code null}
+   */
   protected Scopelet(final NamedAttributeMap<?> scopeId) {
     super();
     this.scopeId = Objects.requireNonNull(scopeId, "scopeId");
   }
 
+
+  /*
+   * Instance methods.
+   */
+
+
+  /**
+   * Returns an {@link Id} representing this {@link Scopelet}.
+   *
+   * <p>Implementations of this method must return determinate values.</p>
+   *
+   * @return an {@link Id} representing this {@link Scopelet}; never {@code null}
+   *
+   * @see #governingScopeId()
+   *
+   * @see #bean()
+   */
   public abstract Id id();
 
+  /**
+   * Returns a {@link Bean} for this {@link Scopelet}.
+   *
+   * <p>This {@link Scopelet} will be used as the {@link Bean}'s {@linkplain Bean#factory() associated
+   * <code>Factory</code>}. This {@link Scopelet}'s {@link #id() Id} will be used as the {@link Bean}'s {@linkplain
+   * Bean#id() identifier}.</p>
+   *
+   * @return a {@link Bean} for this {@link Scopelet}; never {@code null}
+   *
+   * @see #id()
+   */
   public final Bean<S> bean() {
     return new Bean<>(this.id(), this);
   }
 
+  /**
+   * Creates this {@link Scopelet} by simply returning it.
+   *
+   * @return this {@link Scopelet}
+   */
   @Override // Factory<S>
   @SuppressWarnings("unchecked")
-  public final S create(final Creation<S> c, final ReferenceSelector referenceSelector) {
+  public final S create(final Request<S> r) {
     if (ME.compareAndSet(this, null, this)) { // volatile write
-      if (referenceSelector != null) {
+      if (r != null) {
         // TODO: emit initialized event
       }
     }
     return (S)this;
   }
 
+  /**
+   * Returns this {@link Scopelet} if it has been created via the {@link #create(Request)} method, or {@code null} if
+   * that method has not yet been invoked.
+   *
+   * @return this {@link Scopelet} if it has been "{@linkplain #create(Request) created}"; {@code null} otherwise
+   *
+   * @see #create(Request)
+   */
   @Override // Factory<S>
   public final S singleton() {
     return this.me; // volatile read
   }
 
+  /**
+   * Returns {@code true} when invoked to indicate that {@link Scopelet} implementations {@linkplain
+   * Factory#destroy(Object, Request) destroy} what they {@linkplain #create(Request) create}.
+   *
+   * @return {@code true} when invoked
+   *
+   * @see Factory#destroy(Object, Request)
+   *
+   * @see #create(Request)
+   */
   @Override // Factory<S>
-  public boolean destroys() {
+  public final boolean destroys() {
     return true;
   }
 
+  /**
+   * Returns a hashcode for this {@link Scopelet}.
+   *
+   * @return a hashcode for this {@link Scopelet}
+   */
   @Override // Object
   public int hashCode() {
     int hashCode = 17;
@@ -88,6 +184,19 @@ public abstract class Scopelet<S extends Scopelet<S>> implements AutoCloseable, 
     return hashCode;
   }
 
+  /**
+   * Returns {@code true} if and only if the supplied {@link Object} is not {@code null}, has the same class as this
+   * {@link Scopelet}, has an {@link #id() Id} {@linkplain Id#equals(Object) equal to} that of this {@link Scopelet},
+   * and a {@linkplain #scopeId() scope identifier} {@linkplain NamedAttributeMap#equals(Object) equal to} that of this
+   * {@link Scopelet}.
+   *
+   * @param other the {@link Object} to test; may be {@code null}
+   *
+   * @return {@code true} if and only if the supplied {@link Object} is not {@code null}, has the same class as this
+   * {@link Scopelet}, has an {@link #id() Id} {@linkplain Id#equals(Object) equal to} that of this {@link Scopelet},
+   * and a {@linkplain #scopeId() scope identifier} {@linkplain NamedAttributeMap#equals(Object) equal to} that of this
+   * {@link Scopelet}
+   */
   @Override // Object
   public boolean equals(final Object other) {
     if (other == this) {
@@ -102,11 +211,31 @@ public abstract class Scopelet<S extends Scopelet<S>> implements AutoCloseable, 
     }
   }
 
+  /**
+   * Returns the {@link NamedAttributeMap} representing the identifier of the scope to which this {@link Scopelet}
+   * belongs.
+   *
+   * @return the {@link NamedAttributeMap} representing the identifier of the scope to which this {@link Scopelet}
+   * belongs; never {@code null}
+   *
+   * @see ScopeMember
+   */
   @Override // ScopeMember
   public final NamedAttributeMap<?> governingScopeId() {
     return this.id().governingScopeId();
   }
 
+  /**
+   * Returns {@code true} if this {@link Scopelet} is governed by the scope represented by the supplied {@link
+   * NamedAttributeMap}.
+   *
+   * @param scopeId a {@link NamedAttributeMap} identifying a scope; must not be {@code null}
+   *
+   * @return {@code true} if this {@link Scopelet} is governed by the scope represented by the supplied {@link
+   * NamedAttributeMap}
+   *
+   * @exception NullPointerException if {@code scopeId} is {@code null}
+   */
   @Override // ScopeMember
   public final boolean governedBy(final NamedAttributeMap<?> scopeId) {
     return this.id().governedBy(scopeId);
@@ -118,47 +247,178 @@ public abstract class Scopelet<S extends Scopelet<S>> implements AutoCloseable, 
    */
 
 
+  /**
+   * Returns the {@link NamedAttributeMap} that identifies this {@link Scopelet}'s affiliated scope.
+   *
+   * @return the {@link NamedAttributeMap} that identifies this {@link Scopelet}'s affiliated scope; never {@code null}
+   */
   public final NamedAttributeMap<?> scopeId() {
     return this.scopeId;
   }
 
+  /**
+   * Returns {@code true} if and only if this {@link Scopelet} is <dfn>active</dfn> at the moment of the call.
+   *
+   * <p>Overrides of this method must ensure that if {@link #closed()} returns {@code true}, this method must return
+   * {@code false}.</p>
+   *
+   * @return {@code true} if and only if this {@link Scopelet} is <dfn>active</dfn> at the moment of the call
+   *
+   * @see #closed()
+   */
   public boolean active() {
     return !this.closed(); // volatile read
   }
 
+  /**
+   * Checks to see if this {@link Scopelet} {@linkplain #active() is active} and then returns {@code true} if and only
+   * if, at the moment of an invocation, this {@link Scopelet} {@linkplain #active() is active} and already contains an
+   * object identified by the supplied {@link Object}.
+   *
+   * <p>The default implementation of this method checks to see if this {@link Scopelet} {@linkplain #active() is
+   * active}, and then {@code true} if and only if the result of invoking the {@link #instance(Object, Factory,
+   * Request)} method with the supplied {@code id}, {@code null}, and {@code null} is not {@code null}.</p>
+   *
+   * <p>Subclasses are encouraged to override this method to be more efficient or to use a different algorithm.</p>
+   *
+   * @param id the {@link Object} serving as an identifier; may be {@code null} in certain pathological cases
+   *
+   * @return {@code true} if and only if, at the moment of an invocation, this {@link Scopelet} {@linkplain #active() is
+   * active} and contains a preexisting object identified by the supplied {@link Object}
+   *
+   * @exception InactiveScopeletException if this {@link Scopelet} {@linkplain #active() is not active}
+   *
+   * @see #active()
+   *
+   * @see #instance(Object, Factory, Request)
+   */
   public boolean containsId(final Object id) {
+    return (id instanceof Request<?> r ? this.instance(r) : this.instance(id, null, null)) != null;
+  }
+
+  /**
+   * Checks to see if this {@link Scopelet} {@linkplain #active() is active}, and then returns the preexisting
+   * contextual instance identified by the supplied {@link Object}, or {@code null} if no such instance exists.
+   *
+   * <p>This convenience method checks to see if this {@link Scopelet} {@linkplain #active() is active}, and then, if
+   * the supplied {@link Object} is not a {@link Request}, calls the {@link #instance(Object, Factory, Request)} method
+   * with the supplied {@code id}, {@code null}, and {@code null}, and returns its result.</p>
+   *
+   * <p>If the supplied {@link Object} <em>is</em> a {@link Request}, this method calls the {@link #instance(Request)}
+   * method with the supplied (cast) {@code id} and returns its result.</p>
+   *
+   * @param <I> the type of contextual instance
+   *
+   * @param id an {@link Object} serving as an identifier; may be {@code null} in certain pathological cases
+   *
+   * @return the contextual instance identified by the supplied {@link Object}, or {@code null} if no such instance
+   * exists
+   *
+   * @exception InactiveScopeletException if this {@link Scopelet} {@linkplain #active() is not active}
+   *
+   * @see #instance(Object, Factory, Request)
+   *
+   * @see #instance(Request)
+   */
+  // id is nullable.
+  @SuppressWarnings("unchecked")
+  public final <I> I get(final Object id) {
+    return id instanceof Request<?> r ? this.instance((Request<I>)r) : this.instance(id, null, null);
+  }
+
+  /**
+   * Checks to see if this {@link Scopelet} {@linkplain #active() is active} and then eturns a contextual instance
+   * identified by the {@linkplain Request#beanReduction() identifying information} present within the supplied {@link
+   * Request}, creating the instance and associating it with the {@linkplain Request#beanReduction() identifying
+   * information} present within the supplied {@link Request} if necessary.
+   *
+   * @param <I> the type of contextual instance
+   *
+   * @param request a {@link Request}; may be {@code null} in which case the return value of an invocation of {@link
+   * #instance(Object, Factory, Request)} with {@code null} supplied for all three arguments will be returned instead
+   *
+   * @return an appropriate contextual instance, or {@code null}
+   *
+   * @exception InactiveScopeletException if this {@link Scopelet} {@linkplain #active() is not active}
+   *
+   * @see Request#beanReduction()
+   *
+   * @see #instance(Object, Factory, Request)
+   */
+  public final <I> I instance(final Request<I> request) {
+    if (request == null) {
+      return this.instance(null, null, null);
+    }
+    final Bean<I> bean = request.beanReduction().bean();
+    return this.instance(bean.id(), bean.factory(), request);
+  }
+
+  /**
+   * Checks to see if this {@link Scopelet} {@linkplain #active() is active} and then returns a pre-existing or
+   * created-on-demand contextual instance suitable for the combination of identifier, {@link Factory} and {@link
+   * Request}.
+   *
+   * @param <I> the type of contextual instance
+   *
+   * @param id an identifier that can identify a contextual instance; may be {@code null}
+   *
+   * @param factory a {@link Factory}; may be {@code null}
+   *
+   * @param request a {@link Request}, typically the one in effect that is causing this method to be invoked in the
+   * first place; may be {@code null}
+   *
+   * @return a contextual instance, possibly pre-existing, or possibly created just in time, or {@code null}
+   *
+   * @exception InactiveScopeletException if this {@link Scopelet} {@linkplain #active() is not active}
+   */
+  // All parameters are nullable, perhaps pathologically. This helps permit super early bootstrapping.
+  public abstract <I> I instance(final Object id, final Factory<I> factory, final Request<I> request);
+
+  /**
+   * Checks to see if this {@link Scopelet} {@linkplain #active() is active} and then removes any contextual instance
+   * stored under the supplied {@code id}, returning {@code true} if and only if removal actually took place.
+   *
+   * <p>The default implementation of this method always returns {@code false}. Subclasses are encouraged to override
+   * it as appropriate.</p>
+   *
+   * @param id an identifier; may be {@code null}
+   *
+   * @return {@code true} if and only if removal actually occurred
+   *
+   * @exception InactiveScopeletException if this {@link Scopelet} {@linkplain #active() is not active}
+   */
+  // id is nullable.
+  public boolean remove(final Object id) {
     if (!this.active()) {
       throw new InactiveScopeletException();
     }
-    return this.get(id) != null;
+    return false;
   }
 
-  // id is nullable.
-  public <I> I get(final Object id) {
-    if (!this.active()) {
-      throw new InactiveScopeletException();
-    }
-    return this.instance(id, null, null, null);
-  }
-
-  // All parameters are nullable.
-  public abstract <I> I instance(final Object id,
-                                 final Factory<I> factory,
-                                 final Creation<I> c,
-                                 final ReferenceSelector r);
-
-  // id is nullable.
-  public abstract boolean remove(final Object id);
-
+  /**
+   * Irrevocably closes this {@link Scopelet}, and, by doing so, notionally makes it irrevocably {@linkplain #active()
+   * inactive}.
+   *
+   * @see #closed()
+   *
+   * @see #active()
+   */
+  // Most scopelets will want to override this to do additional work. They must call super.close() to ensure #closed()
+  // returns an appropriate value.
   @Override // AutoCloseable
   public void close() {
-    if (!this.closed()) {
-      this.closed = true;
-    }
+    CLOSED.compareAndSet(this, false, true); // volatile write
   }
 
+  /**
+   * Returns {@code true} if and only if at the moment of invocation this {@link Scopelet} is (irrevocably) closed (and
+   * therefore also {@linkplain #active() not active}).
+   *
+   * @return {@code true} if and only if at the moment of invocation this {@link Scopelet} is (irrevocably) closed (and
+   * therefore also {@linkplain #active() not active})
+   */
   protected final boolean closed() {
-    return this.closed;
+    return this.closed; // volatile read
   }
 
 }
