@@ -1,6 +1,6 @@
 /* -*- mode: Java; c-basic-offset: 2; indent-tabs-mode: nil; coding: utf-8-unix -*-
  *
- * Copyright © 2023–2024 microBean™.
+ * Copyright © 2024 microBean™.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -11,37 +11,10 @@
  * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
  * specific language governing permissions and limitations under the License.
  */
-package org.microbean.scopelet;
 
 /**
- * A {@link ScopeletException} indicating that during contextual instance creation a cycle was detected.
+ * Provides classes and interfaces implementing <em>scopelets</em>, lifecycle managers for beans.
  *
  * @author <a href="https://about.me/lairdnelson" target="_top">Laird Nelson</a>
  */
-public class CreationCycleDetectedException extends ScopeletException {
-
-
-  /*
-   * Static fields.
-   */
-
-
-  /**
-   * The version of this class for {@linkplain java.io.Serializable serialization} purposes.
-   */
-  private static final long serialVersionUID = 1L;
-
-
-  /*
-   * Constructors.
-   */
-
-
-  /**
-   * Creates a new {@link CreationCycleDetectedException}.
-   */
-  public CreationCycleDetectedException() {
-    super();
-  }
-
-}
+package org.microbean.scopelet;

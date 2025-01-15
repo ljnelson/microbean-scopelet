@@ -1,6 +1,6 @@
 /* -*- mode: Java; c-basic-offset: 2; indent-tabs-mode: nil; coding: utf-8-unix -*-
  *
- * Copyright © 2023–2024 microBean™.
+ * Copyright © 2023–2025 microBean™.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
@@ -15,93 +15,98 @@ package org.microbean.scopelet;
 
 import java.lang.constant.ClassDesc;
 import java.lang.constant.Constable;
+import java.lang.constant.ConstantDesc;
 import java.lang.constant.DynamicConstantDesc;
 import java.lang.constant.MethodHandleDesc;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 import org.microbean.bean.AutoCloseableRegistry;
-import org.microbean.bean.Creation;
 import org.microbean.bean.DisposableReference;
 import org.microbean.bean.Factory;
 import org.microbean.bean.Id;
-import org.microbean.bean.ReferenceSelector;
+import org.microbean.bean.Request;
+
+import org.microbean.constant.Constables;
+
+import org.microbean.construct.Domain;
 
 import static java.lang.constant.ConstantDescs.BSM_INVOKE;
 
-import static org.microbean.bean.Qualifiers.anyQualifier;
-
-import static org.microbean.lang.Lang.declaredType;
-import static org.microbean.lang.Lang.typeElement;
+import static org.microbean.assign.Qualifiers.anyQualifier;
 
 import static org.microbean.scope.Scope.NONE_ID;
 import static org.microbean.scope.Scope.SINGLETON_ID;
 
-public final class NoneScopelet extends Scopelet<NoneScopelet> implements Constable {
-
-  public static final Id ID =
-    new Id(List.of(declaredType(NoneScopelet.class),
-                   declaredType(null,
-                                typeElement(Scopelet.class),
-                                declaredType(NoneScopelet.class))),
-           List.of(NONE_ID, anyQualifier()), // qualifiers
-           SINGLETON_ID); // the scope we belong to
-
-  private static final ClassDesc CD_NoneScopelet = ClassDesc.of(NoneScopelet.class.getName());
+/**
+ * A {@link Scopelet} implementation that does not cache objects at all.
+ *
+ * @author <a href="https://about.me/lairdnelson" target="_top">Laird Nelson</a>
+ */
+public class NoneScopelet extends Scopelet<NoneScopelet> implements Constable {
 
   private static final boolean useDisposableReferences =
     Boolean.parseBoolean(System.getProperty("useDisposableReferences", "false"));
 
-  public NoneScopelet() {
+  private final Domain domain;
+
+  /**
+   * Creates a new {@link NoneScopelet}.
+   *
+   * @param domain a {@link Domain}; must not be {@code null}
+   *
+   * @exception NullPointerException if {@code domain} is {@code null}
+   */
+  public NoneScopelet(final Domain domain) {
     super(NONE_ID); // the scope we implement
+    this.domain = Objects.requireNonNull(domain, "domain");
   }
 
   @Override // Scopelet<NoneScopelet>
-  public final Id id() {
-    return ID;
+  public Id id() {
+    return
+      new Id(List.of(this.domain.declaredType(NoneScopelet.class.getName()),
+                     this.domain.declaredType(null,
+                                              this.domain.typeElement(Scopelet.class.getName()),
+                                              this.domain.declaredType(NoneScopelet.class.getName()))),
+             List.of(NONE_ID, anyQualifier()), // qualifiers
+             SINGLETON_ID); // the scope we belong to
   }
 
+  // All parameters are nullable.
+  // Non-final to permit subclasses to, e.g., add logging.
   @Override // Scopelet<NoneScopelet>
-  public final <I> I get(final Object beanId) {
-    if (!this.active()) {
-      throw new InactiveScopeletException();
-    }
-    return null;
-  }
-
-  @Override // Scopelet<NoneScopelet>
-  public final <I> I instance(final Object beanId,
-                              final Factory<I> factory,
-                              final Creation<I> c,
-                              final ReferenceSelector r) {
+  public <I> I instance(final Object ignoredBeanId,
+                        final Factory<I> factory,
+                        final Request<I> request) {
     if (!this.active()) {
       throw new InactiveScopeletException();
     } else if (factory == null) {
       return null;
     }
-    final I returnValue = factory.create(c, r);
+    final I returnValue = factory.create(request);
     if (factory.destroys()) {
       if (useDisposableReferences) {
-        new DisposableReference<>(returnValue, referent -> factory.destroy(referent, c, c, r));
-      } else if (c instanceof AutoCloseableRegistry acr) {
-        acr.register(new Instance<>(returnValue, factory::destroy, c, r));
+        // Merely creating a DisposableReference will cause it to get disposed IF garbage collection runs (which is not guaranteed).
+        new DisposableReference<>(returnValue, referent -> factory.destroy(referent, request));
+      } else if (request instanceof AutoCloseableRegistry acr) {
+        acr.register(new Instance<>(returnValue, factory::destroy, request));
+      } else {
+        // TODO: warn or otherwise point out that dependencies will not be destroyed
       }
     }
     return returnValue;
   }
 
-  @Override // Scopelet<NoneScopelet>
-  public final boolean remove(final Object id) {
-    if (!this.active()) {
-      throw new InactiveScopeletException();
-    }
-    return false;
-  }
-
   @Override // Constable
-  public final Optional<DynamicConstantDesc<NoneScopelet>> describeConstable() {
-    return Optional.of(DynamicConstantDesc.of(BSM_INVOKE, MethodHandleDesc.ofConstructor(CD_NoneScopelet)));
+  public Optional<? extends ConstantDesc> describeConstable() {
+    return (this.domain instanceof Constable c ? c.describeConstable() : Optional.<ConstantDesc>empty())
+      .map(domainDesc -> DynamicConstantDesc.of(BSM_INVOKE,
+                                             MethodHandleDesc.ofConstructor(ClassDesc.of(this.getClass().getName()),
+                                                                            ClassDesc.of(Domain.class.getName())),
+                                             domainDesc));
   }
 
 }
